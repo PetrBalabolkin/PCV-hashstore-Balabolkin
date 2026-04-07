@@ -14,7 +14,7 @@ export class HashStoreClient {
 			socket.on('connect', () => {
 				socket.write(payload);
 			})
-			socket.on('data', (d) => {
+			socket.on('data', (d: Buffer) => {
 				chunks.push(d);
 			})
 			socket.on('end', () => {
@@ -30,18 +30,18 @@ export class HashStoreClient {
 		const raw = await this.connect(Buffer.from('LIST'));
 		const txt: string = raw.toString();
 		const lines: string[] = txt.split('\n');
-		const [status, , countStr] = lines[0]?.split(' ');
+		const [status, , countStr] = lines[0]?.split(' ') ?? [];
 
-		if (status !== 200) {
+		if (status !== '200') {
 			throw new Error(status);
 		}
 
-		const count: number = parseInt(countStr);
+		const count: number = parseInt(countStr ?? '0');
 		const result = [];
 
 		for (let i = 1; i <= count; i++) {
-			const [hash, ...desc] = lines[i]?.split(' ');
-			result.push({ hash, description: desc.join(' ') });
+			const [hash, ...desc] = lines[i]?.split(' ') ?? [];
+			if (hash) result.push({ hash, description: desc.join(' ') });
 		}
 		return result;
 	}
@@ -56,7 +56,7 @@ export class HashStoreClient {
 			throw new Error(header);
 		}
 
-		const length = parseInt(parts[2]);
+		const length = parseInt(parts[2] ?? '0');
 		const desc = parts.slice(3).join('');
 		const data = raw.slice(ind + 1, ind + 1 + length);
 		const filename = `down_${desc}`;
@@ -76,7 +76,7 @@ export class HashStoreClient {
 		const [status, , hash] = response.split(' ');
 
 		if (status == '200') {
-			return hash;
+			return hash!;
 		}
 
 		throw new Error(response);
