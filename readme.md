@@ -39,3 +39,21 @@ node cli.js
 # alebo
 bun cli.js
 ```
+
+## Running prebuilt binaries
+
+Alternatively, you can run the prebuilt binaries directly without installing any dependencies.
+
+### macOS
+
+```bash
+chmod +x binaries/mac/hashstore
+./binaries/mac/hashstore
+```
+
+### Linux
+
+```bash
+chmod +x binaries/linux/hashstore
+./binaries/linux/hashstore
+```
