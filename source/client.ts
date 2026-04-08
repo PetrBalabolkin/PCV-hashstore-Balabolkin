@@ -5,88 +5,123 @@ import * as path from 'path';
 export class HashStoreClient {
 	private host: string = 'localhost';
 	private port: number = 9000;
+	private socket: net.Socket | null = null;
+	private buffer: Buffer = Buffer.alloc(0);
 
-	async connect(payload: Buffer): Promise<Buffer> {
+	async ensureConnected(): Promise<void> {
+		if (this.socket && !this.socket.destroyed) return;
+
 		return new Promise((resolve, reject) => {
-			const socket = net.createConnection(this.port, this.host);
-			let chunks: Buffer[] = [];
-
-			socket.on('connect', () => {
-				socket.write(payload);
-			})
-			socket.on('data', (d: Buffer) => {
-				chunks.push(d);
-			})
-			socket.on('end', () => {
-				resolve(Buffer.concat(chunks));
-			})
-			socket.on('error', (err) => {
-				reject(err);
-			})
-		})
+			const sock = net.createConnection(this.port, this.host);
+			sock.once('connect', () => {
+				this.socket = sock;
+				this.buffer = Buffer.alloc(0);
+				sock.on('data', (chunk: Buffer) => {
+					this.buffer = Buffer.concat([this.buffer, chunk]);
+				});
+				resolve();
+			});
+			sock.once('error', reject);
+		});
 	}
 
-	async list() {
-		const raw = await this.connect(Buffer.from('LIST\n'));
-		const txt: string = raw.toString();
-		const lines: string[] = txt.split('\n');
-		const [status, , countStr] = lines[0]?.split(' ') ?? [];
-
-		if (status !== '200') {
-			throw new Error(status);
-		}
-
-		const count: number = parseInt(countStr ?? '0');
-		const result = [];
-
-		for (let i = 1; i <= count; i++) {
-			const [hash, ...desc] = lines[i]?.split(' ') ?? [];
-			if (hash) result.push({ hash, description: desc.join(' ') });
-		}
-		return result;
+	private async readLine(): Promise<string> {
+		return new Promise((resolve) => {
+			const check = () => {
+				const idx = this.buffer.indexOf('\n');
+				if (idx !== -1) {
+					const line = this.buffer.slice(0, idx).toString('utf8');
+					this.buffer = this.buffer.slice(idx + 1);
+					resolve(line);
+				} else {
+					setTimeout(check, 10);
+				}
+			};
+			check();
+		});
 	}
 
-	async get(hash: string): Promise<void> {
-		const raw = await this.connect(Buffer.from(`GET ${hash}\n`));
-		const ind = raw.indexOf('\n');
-		const header = raw.slice(0, ind).toString('utf8');
+	private async readExact(n: number): Promise<Buffer> {
+		return new Promise((resolve) => {
+			const check = () => {
+				if (this.buffer.length >= n) {
+					const data = this.buffer.slice(0, n);
+					this.buffer = this.buffer.slice(n);
+					resolve(data);
+				} else {
+					setTimeout(check, 10);
+				}
+			};
+			check();
+		});
+	}
+
+	private send(data: string | Buffer): void {
+		this.socket!.write(data);
+	}
+
+	async list(): Promise<{ statusLine: string; files: { hash: string; description: string }[] }> {
+		await this.ensureConnected();
+		this.send('LIST\n');
+
+		const header = await this.readLine();
+		if (!header.startsWith('200')) throw new Error(header);
+
+		const count = parseInt(header.split(' ')[2] ?? '0');
+		const files: { hash: string; description: string }[] = [];
+
+		for (let i = 0; i < count; i++) {
+			const line = await this.readLine();
+			const [hash, ...desc] = line.split(' ');
+			if (hash) files.push({ hash, description: desc.join(' ') });
+		}
+
+		return { statusLine: header, files };
+	}
+
+	async get(hash: string): Promise<{ statusLine: string; filename: string }> {
+		await this.ensureConnected();
+		this.send(`GET ${hash}\n`);
+
+		const header = await this.readLine();
+		if (!header.startsWith('200')) throw new Error(header);
+
 		const parts = header.split(' ');
-
-		if (parts[0] !== '200'){
-			throw new Error(header);
-		}
-
 		const length = parseInt(parts[2] ?? '0');
-		const desc = parts.slice(3).join('');
-		const data = raw.slice(ind + 1, ind + 1 + length);
+		const desc = parts.slice(3).join(' ');
+
+		const data = await this.readExact(length);
 		const filename = `down_${desc}`;
-
 		await fs.writeFile(path.join(process.cwd(), filename), data);
-		console.log(`Saved: ${filename}`);
+
+		return { statusLine: `${parts[0]} ${parts[1]}`, filename };
 	}
 
-	async upload(filePath: string, desc: string): Promise<string> {
+	async upload(filePath: string, desc: string): Promise<{ statusLine: string; hash: string }> {
+		await this.ensureConnected();
 		const data = await fs.readFile(filePath);
-		const header = Buffer.from(`UPLOAD ${data.length} ${desc}\n`);
-		const payload = Buffer.concat([header, data]);
+		this.send(`UPLOAD ${data.length} ${desc}\n`);
+		this.send(data);
 
-		const raw =  await this.connect(payload);
+		const header = await this.readLine();
+		const parts = header.split(' ');
+		if (parts[0] !== '200') throw new Error(header);
 
-		const response = raw.toString('utf-8').trim();
-		const [status, , hash] = response.split(' ');
-
-		if (status == '200') {
-			return hash!;
-		}
-
-		throw new Error(response);
+		return { statusLine: `${parts[0]} ${parts[1]}`, hash: parts[2]! };
 	}
 
-	async delete(hash: string): Promise<void> {
-		const raw = await this.connect(Buffer.from(`DELETE ${hash}\n`));
-		const response = raw.toString('utf8').trim();
-		if (!response.startsWith('200')) {
-			throw new Error(response);
-		}
+	async delete(hash: string): Promise<{ statusLine: string }> {
+		await this.ensureConnected();
+		this.send(`DELETE ${hash}\n`);
+
+		const header = await this.readLine();
+		if (!header.startsWith('200')) throw new Error(header);
+
+		return { statusLine: header };
+	}
+
+	disconnect(): void {
+		this.socket?.destroy();
+		this.socket = null;
 	}
 }

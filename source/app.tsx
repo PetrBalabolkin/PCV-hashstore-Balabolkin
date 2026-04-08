@@ -49,16 +49,16 @@ export default function App() {
 		setIsLoading(true);
 		try {
 			if (cmd === 'l' || cmd === 'list') {
-				const result = await client.list();
-				setFiles(result);
-				addMsg(`Found ${result.length} files.`, 'success');
+				const { statusLine, files } = await client.list();
+				setFiles(files);
+				addMsg(`[${statusLine}] Found ${files.length} files.`, 'success');
 			} else if (cmd === 'g' || cmd === 'get') {
 				const hash = parts[1];
 				if (!hash) {
 					addMsg('Use: get <hash>', 'error');
 				} else {
-					await client.get(hash);
-					addMsg(`Downloaded! Hash: ${hash}`, 'success');
+					const { statusLine, filename } = await client.get(hash);
+					addMsg(`[${statusLine}] Saved: ${filename}`, 'success');
 				}
 			} else if (cmd === 'u' || cmd === 'upload') {
 				const filePath = parts[1];
@@ -66,20 +66,20 @@ export default function App() {
 					addMsg('Use: upload <cesta> [desc]  (drag & drop)', 'error');
 				} else {
 					const desc = parts.slice(2).join(' ') || 'no-description';
-					const hash = await client.upload(filePath, desc);
-					addMsg(`Uploaded! Hash: ${hash}`, 'success');
-					const result = await client.list();
-					setFiles(result);
+					const { statusLine, hash } = await client.upload(filePath, desc);
+					addMsg(`[${statusLine}] Hash: ${hash}`, 'success');
+					const { files } = await client.list();
+					setFiles(files);
 				}
 			} else if (cmd === 'd' || cmd === 'delete') {
 				const hash = parts[1];
 				if (!hash) {
 					addMsg('Using: delete <hash>', 'error');
 				} else {
-					await client.delete(hash);
-					addMsg(`Deleted: ${hash}`, 'success');
-					const result = await client.list();
-					setFiles(result);
+					const { statusLine } = await client.delete(hash);
+					addMsg(`[${statusLine}] Deleted: ${hash}`, 'success');
+					const { files } = await client.list();
+					setFiles(files);
 				}
 			} else if (cmd === 'q' || cmd === 'quit' || cmd === 'exit') {
 				process.exit(0);
