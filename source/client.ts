@@ -27,7 +27,7 @@ export class HashStoreClient {
 	}
 
 	async list() {
-		const raw = await this.connect(Buffer.from('LIST'));
+		const raw = await this.connect(Buffer.from('LIST\n'));
 		const txt: string = raw.toString();
 		const lines: string[] = txt.split('\n');
 		const [status, , countStr] = lines[0]?.split(' ') ?? [];
@@ -47,7 +47,7 @@ export class HashStoreClient {
 	}
 
 	async get(hash: string): Promise<void> {
-		const raw = await this.connect(Buffer.from(`GET ${hash}\\n`));
+		const raw = await this.connect(Buffer.from(`GET ${hash}\n`));
 		const ind = raw.indexOf('\n');
 		const header = raw.slice(0, ind).toString('utf8');
 		const parts = header.split(' ');
